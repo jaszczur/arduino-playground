@@ -1,0 +1,4 @@
+run:
+	platformio run
+
+
