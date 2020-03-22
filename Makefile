@@ -1,10 +1,13 @@
 
 compile:
-	platformio run
+	pio run
 
 check:
-	platformio check
+	pio check
 
 upload:
-	platformio run -t upload
+	pio run -t upload
 
+ide:
+	rm .ccls
+	pio init --ide emacs

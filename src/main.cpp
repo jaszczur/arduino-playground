@@ -1,93 +1,87 @@
 #include <Arduino.h>
-const uint8_t LED_LL = 6;
-const uint8_t LED_L = 7;
-const uint8_t LED_C= 8;
-const uint8_t LED_R = 9;
-const uint8_t LED_RR = 10;
+#include <DHT.h>
+#include "seeed_w600.h"
+#include "config.h"
 
-const uint16_t sleepTime = 50;
-const uint16_t userTime = 300;
-const byte calibrationTimes = 20;
+SoftwareSerial softSerial(3, 2);
 
-int left = 0;
-int right = 0;
-int diff = 0;
-int calibration = 0;
+AtWifi wifi;
+String networkName = SSID;
+String neworkPassword = PSWD;
+char *TARGET_IP = "192.168.1.4";
+uint16_t TARGET_PORT = 6900;
+uint16_t LOCAL_PORT = 8080;
+String msg;
+int32_t socket = -1;
 
-void blink(uint8_t led) {
-  digitalWrite(led, HIGH);
-  delay(sleepTime);
-  digitalWrite(led, LOW);
-}
-
-void turnOnIf(uint8_t led, uint8_t onlyOnLed) {
-  digitalWrite(led, led == onlyOnLed ? HIGH : LOW);
-}
-
-void turnOnOnly(uint8_t led) {
-  turnOnIf(LED_LL, led);
-  turnOnIf(LED_L, led);
-  turnOnIf(LED_C, led);
-  turnOnIf(LED_R, led);
-  turnOnIf(LED_RR, led);
-}
-
-void sayHi() {
-  blink(LED_LL);
-  blink(LED_L);
-  blink(LED_C);
-  blink(LED_R);
-  blink(LED_RR);
-  delay(userTime);
-}
-
-void readDiff() {
-  left = map(analogRead(A5), 0, 1023, 0, 1000);
-  right = map(analogRead(A4), 0, 1023, 0, 1000);
-  diff = left - right - calibration;
-}
-
-void calibrate() {
-  int sum = 0;
-  for (byte i = 0; i < calibrationTimes; i++) {
-    readDiff();
-    sum += diff;
-    blink(LED_C);
-    delay(25);
-  }
-  calibration = sum / calibrationTimes;
-}
+DHT sensor(4, DHT11);
+const uint8_t ledStatus = 7;
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(LED_LL, OUTPUT);
-  pinMode(LED_L, OUTPUT);
-  pinMode(LED_C, OUTPUT);
-  pinMode(LED_R, OUTPUT);
-  pinMode(LED_RR, OUTPUT);
+  sensor.begin();
+  pinMode(ledStatus, OUTPUT);
+  debug.begin(9600);
+  debug.println("Zaczynamy");
 
-  turnOnOnly(0); // turn off all
-  sayHi();
-  calibrate();
-  sayHi();
+  wifi.begin(softSerial, 9600);
+  wifi.wifiReset();
+  delay(1000);
+  if(!wifi.wifiSetMode(STA)) {
+    debug.println("Set config mode failed!");
+    digitalWrite(7, HIGH);
+    return;
+  }
+  if (!wifi.wifiStaSetTargetApSsid(networkName)) {
+    debug.println("Set target AP ssid failed!!");
+    digitalWrite(7, HIGH);
+    return;
+  }
+  delay(100);
+  if (!wifi.wifiStaSetTargetApPswd(neworkPassword)) {
+    debug.println("Set target AP password failed!!");
+    digitalWrite(7, HIGH);
+    return;
+  }
+  delay(100);
+
+  if (!wifi.joinNetwork()) {
+    debug.println("Join to AP network failed!!");
+    digitalWrite(7, HIGH);
+    return;
+  }
+  delay(1500);
+  if (!wifi.wifiCreateSocket(msg, TCP, Client, TARGET_IP, TARGET_PORT,
+                             LOCAL_PORT)) {
+    debug.println("Connect to remote server failed!!");
+    digitalWrite(7, HIGH);
+    return;
+  }
+  delay(100);
+  socket = msg[0] - 0x30;
+  debug.print("socket = ");
+  debug.println(socket);
+  debug.println("Wifi connected, TCP connection established");
 }
 
-
 void loop() {
-  readDiff();
-  Serial.println(diff);
+  float hum  = sensor.readHumidity();
+  float temp = sensor.readTemperature();
 
-  if (diff >= 500) {
-    turnOnOnly(LED_LL);
-  } else if (diff >= 100) {
-    turnOnOnly(LED_L);
-  } else if (diff > -100) {
-    turnOnOnly(LED_C);
-  } else if (diff > -500) {
-    turnOnOnly(LED_R);
-  } else if (diff <= -500) {
-    turnOnOnly(LED_RR);
+  if (isnan(hum) || isnan(temp) || (hum == 0.0 && temp == 0.0)) {
+    digitalWrite(7, HIGH);
+  } else {
+    digitalWrite(7, LOW);
+    String data = "0,";
+    data += temp;
+    data += ",";
+    data += hum;
+    data += "\n";
+    wifi.wifiSocketSend(msg, socket, data);
+    // Serial.print((int)hum);
+    // Serial.print(",");
+    // Serial.print((int)temp);
+    // Serial.println();
   }
 
-  delay(20);
+  delay(30000);
 }
