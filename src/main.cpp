@@ -5,26 +5,23 @@
 #include "config.h"
 
 // WiFi
-SoftwareSerial softSerial(3, 2);
+SoftwareSerial softSerial(PIN_WIFI_RX, PIN_WIFI_TX);
 
 AtWifi wifi;
-String networkName = SSID;
-String neworkPassword = PSWD;
-char *TARGET_IP = "192.168.1.4";
-uint16_t TARGET_PORT = 6900;
-uint16_t LOCAL_PORT = 8080;
 String msg;
 int32_t socket = -1;
+bool netStatus = false;
+byte netRetry = 0;
 
 // Sensors
-DHT sensor(4, DHT11);
+DHT tempHumSensor(PIN_TEMP_HUM, DHT11);
 
 // State
 int hundredsOfMilis = 0;
 
 // Display
-const uint8_t ledStatus = 7;
 rgb_lcd lcd;
+bool displayErrors = true;
 
 void displayJust(const char* text) {
   lcd.clear();
@@ -33,13 +30,18 @@ void displayJust(const char* text) {
 
 void displayError(const char* message) {
   debug.println(message);
-  displayJust(message);
-  lcd.autoscroll();
+  if (displayErrors) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Blad :(");
+    lcd.setCursor(0, 1);
+    lcd.print(message);
+  }
 }
 
-void displayNetStatus(bool status) {
+void displayNetStatus() {
   lcd.setCursor(14, 1);
-  lcd.print(status ? "+" : "-");
+  lcd.print(netStatus ? ":)" : ":(");
 }
 
 void displayReadingsPlaceholder() {
@@ -62,62 +64,73 @@ void displayReadings(int temp, int hum) {
   lcd.print((int)hum);
 }
 
-void setup() {
-  debug.begin(9600);
-
-  sensor.begin();
-  pinMode(ledStatus, OUTPUT);
-  lcd.begin(16, 2);
-  lcd.setRGB(255, 0, 0);
-  displayJust("Connecting...");
-
-  wifi.begin(softSerial, 9600);
+void wifiConnect() {
+  String wifiSsid(WIFI_SSID);
+  String wifiPass(WIFI_PSWD);
+  if (netRetry++ % 4 != 0) {
+    return;
+  }
+  netStatus = false;
   wifi.wifiReset();
   delay(1000);
   if(!wifi.wifiSetMode(STA)) {
-    displayError("Set config mode failed!");
-    digitalWrite(7, HIGH);
+    displayError("Set mode failed");
     return;
   }
-  if (!wifi.wifiStaSetTargetApSsid(networkName)) {
-    displayError("Set target AP ssid failed!!");
-    digitalWrite(7, HIGH);
+  if (!wifi.wifiStaSetTargetApSsid(wifiSsid)) {
+    displayError("Set net name failed");
     return;
   }
   delay(100);
-  if (!wifi.wifiStaSetTargetApPswd(neworkPassword)) {
-    displayError("Set target AP password failed!!");
-    digitalWrite(7, HIGH);
+  if (!wifi.wifiStaSetTargetApPswd(wifiPass)) {
+    displayError("Set net pass failed");
     return;
   }
   delay(100);
 
   if (!wifi.joinNetwork()) {
-    displayError("Join to AP network failed!!");
-    digitalWrite(7, HIGH);
+    displayError("WiFi connect failed");
     return;
   }
   delay(1500);
-  if (!wifi.wifiCreateSocket(msg, TCP, Client, TARGET_IP, TARGET_PORT,
-                             LOCAL_PORT)) {
-    displayError("Connect to remote server failed!!");
-    digitalWrite(7, HIGH);
+  if (!wifi.wifiCreateSocket(msg, TCP, Client, COLECTOR_HOST, COLECTOR_PORT, LOCAL_PORT)) {
+    displayError("Server connect failed");
     return;
   }
   delay(100);
   socket = msg[0] - 0x30;
+  netStatus = true;
+  netRetry = 0;
   debug.print("socket = ");
   debug.println(socket);
   debug.println("Wifi connected, TCP connection established");
-  displayJust("Connected");
+}
+
+void setup() {
+  debug.begin(9600);
+
+  // Initialize display
+  tempHumSensor.begin();
+  pinMode(PIN_STATUS_LED, OUTPUT);
+  lcd.begin(16, 2);
+  lcd.setRGB(255, 0, 0);
+
+  // Initialize connection
+  displayJust("Connecting...");
+  wifi.begin(softSerial, 9600);
+  wifiConnect();
+  if (netStatus) {
+    displayJust("Connected");
+  }
   delay(2000);
 
+  displayErrors = false;
   displayReadingsPlaceholder();
 }
 
 void doTheReadings() {
-  float hum  = sensor.readHumidity();
-  float temp = sensor.readTemperature();
+  float hum  = tempHumSensor.readHumidity();
+  float temp = tempHumSensor.readTemperature();
 
   if (isnan(hum) || isnan(temp) || (hum == 0.0 && temp == 0.0)) {
     displayReadingsPlaceholder();
@@ -127,17 +140,23 @@ void doTheReadings() {
     data += ",";
     data += hum;
     data += "\n";
-    bool netStatus = wifi.wifiSocketSend(msg, socket, data);
+    netStatus = wifi.wifiSocketSend(msg, socket, data);
     displayReadings(temp, hum);
-    displayNetStatus(netStatus);
+    displayNetStatus();
   }
 }
 
 void loop() {
-  digitalWrite(7, HIGH);
+  digitalWrite(PIN_STATUS_LED, HIGH);
   delay(100);
-  digitalWrite(7, LOW);
+  digitalWrite(PIN_STATUS_LED, LOW);
 
   doTheReadings();
-  delay(30000);
+  if (netStatus) {
+    delay(30000);
+  } else {
+    wifiConnect();
+    displayNetStatus();
+    delay(20000);
+  }
 }
