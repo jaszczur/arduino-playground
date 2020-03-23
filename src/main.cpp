@@ -135,7 +135,7 @@ void doTheReadings() {
   if (isnan(hum) || isnan(temp) || (hum == 0.0 && temp == 0.0)) {
     displayReadingsPlaceholder();
   } else {
-    String data = "0,";
+    String data = "-1,";
     data += temp;
     data += ",";
     data += hum;
