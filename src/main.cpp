@@ -1,29 +1,40 @@
 #include <Arduino.h>
-#include <Ultrasonic.h>
+#include <Grove_Motor_Driver_TB6612FNG.h>
 
-const uint8_t pinEcho = 8;
-const uint8_t pinBuzz = 3;
-const int maxDistCm = 255;
-
-Ultrasonic sensor(pinEcho);
+MotorDriver motor;
 
 void setup() {
+  Wire.begin();
   Serial.begin(9600);
-  pinMode(pinBuzz, OUTPUT);
-  pinMode(pinEcho, INPUT);
+  motor.init();
+  motor.dcMotorStop(MOTOR_CHA);
+  motor.dcMotorStop(MOTOR_CHB);
+  delay(5000);
 }
 
-
-long distance() {
-  return sensor.MeasureInCentimeters();
-}
 
 void loop() {
-  int dist = distance();
-  if (dist >= 0) {
-    Serial.println(dist);
-    digitalWrite(pinBuzz, dist < 50 ? HIGH : LOW);
-  }
+  Serial.println("run at speed=200");
+  motor.dcMotorRun(MOTOR_CHA, 200);
+  motor.dcMotorRun(MOTOR_CHB, 200);
+  delay(1000);
 
-  delay(50);
+  Serial.println("brake");
+  motor.dcMotorBrake(MOTOR_CHA);
+  motor.dcMotorBrake(MOTOR_CHB);
+  delay(1000);
+
+  Serial.println("run at speed=-100");
+  motor.dcMotorRun(MOTOR_CHA, -100);
+  motor.dcMotorRun(MOTOR_CHB, -100);
+  delay(700);
+  Serial.println("rotate at speed=100");
+  motor.dcMotorRun(MOTOR_CHA, -100);
+  motor.dcMotorRun(MOTOR_CHB, 100);
+  delay(1000);
+
+  Serial.println("stop");
+  motor.dcMotorStop(MOTOR_CHA);
+  motor.dcMotorStop(MOTOR_CHB);
+  delay(1000);
 }
