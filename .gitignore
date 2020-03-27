@@ -3,4 +3,5 @@
 .ccls
 .ccls-cache/
 .dir-locals.el
+src/config.h
 
