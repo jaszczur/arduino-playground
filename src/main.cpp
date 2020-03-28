@@ -1,8 +1,12 @@
 #include <Arduino.h>
 #include <Grove_Motor_Driver_TB6612FNG.h>
 #include <IRSendRev.h>
+#include <Ultrasonic.h>
+
 
 #define PIN_IRDA       8
+#define PIN_SONIC_TRIG 4
+#define PIN_SONIC_ECHO 5
 
 #define BIT_LEN        0
 #define BIT_START_H    1
@@ -14,40 +18,46 @@
 
 #define MOTOR_LEFT     MOTOR_CHB
 #define MOTOR_RIGHT    MOTOR_CHA
-#define DEFAULT_SPEED  100
+#define DEFAULT_SPEED  125
 #define SPEED_STEP     25
+#define MIN_DIST_CM    20
 
 #define STOPPED  0
 #define LEFT     1
 #define RIGHT    2
 #define FORWARD  3
 #define BACKWARD 4
+#define NOOP     5
 
 unsigned char irMessage[24];
-uint8_t currentState = STOPPED;
+uint8_t state = STOPPED;
+uint8_t action = NOOP;
+uint16_t distance = 0;
 uint8_t speed = DEFAULT_SPEED;
 MotorDriver motor;
+Ultrasonic ultrasonic(PIN_SONIC_TRIG, PIN_SONIC_ECHO);
 
-void advanceState(uint8_t action) {
-  if (   (currentState == BACKWARD && action == FORWARD)
-      || (currentState == FORWARD  && action == BACKWARD)) {
+void advanceState() {
+  if ((state == FORWARD && distance < MIN_DIST_CM)
+      || (state == BACKWARD && action == FORWARD)
+      || (state == FORWARD  && action == BACKWARD)) {
     Serial.println("stop");
-    currentState = STOPPED;
+    state = STOPPED;
     speed = DEFAULT_SPEED;
   } else if (action == BACKWARD || action == FORWARD) {
     Serial.println("moar");
-    currentState = action;
+    state = action;
     speed = min(speed + SPEED_STEP, 254);
   } else if (action == LEFT || action == RIGHT) {
     speed = DEFAULT_SPEED;
-    currentState = action;
+    state = action;
   } else {
-    Serial.println("WTF?");
+    Serial.println("rest");
   }
 }
 
 void performMove() {
-  switch (currentState) {
+  switch (state) {
   case STOPPED:
     motor.dcMotorStop(MOTOR_LEFT);
     motor.dcMotorStop(MOTOR_RIGHT);
@@ -71,7 +81,7 @@ void performMove() {
   }
 }
 
-uint8_t decodeSignal() {
+void decodeSignal() {
   // uint32_t irData = *((uint32_t*)(irMessage + BIT_DATA));
   // reversed endianess...
   uint32_t irData =
@@ -80,17 +90,23 @@ uint8_t decodeSignal() {
     | (((uint32_t)irMessage[BIT_DATA + 2]) << 8)
     |   (uint32_t)irMessage[BIT_DATA + 3];
   Serial.println(irData, HEX);
+
   switch(irData) {
   case 0x02FD42BD:
-    return LEFT;
+    action = LEFT;
+    break;
   case 0x02FD02FD:
-    return RIGHT;
+    action = RIGHT;
+    break;
   case 0x02FD9867:
-    return FORWARD;
+    action = FORWARD;
+    break;
   case 0x02FDB847:
-    return BACKWARD;
+    action = BACKWARD;
+    break;
   default:
-    return STOPPED;
+    action = STOPPED;
+    break;
   }
 }
 
@@ -104,9 +120,13 @@ void setup() {
 }
 
 void loop() {
+  distance = ultrasonic.read();
   if (IR.IsDta()) {
     IR.Recv(irMessage);
-    advanceState(decodeSignal());
-    performMove();
+    decodeSignal();
+  } else {
+    action = NOOP;
   }
+  advanceState();
+  performMove();
 }
