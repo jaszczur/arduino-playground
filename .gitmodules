@@ -1,6 +1,0 @@
-[submodule "lib/Eventually"]
-	path = lib/Eventually
-	url = https://github.com/johnnyb/Eventually.git
-[submodule "lib/GOTStateMachine"]
-	path = lib/GOTStateMachine
-	url = https://github.com/Grumpy-Old-Tech/GOTStateMachine.git
