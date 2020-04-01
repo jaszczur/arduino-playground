@@ -2,7 +2,7 @@
 #include <Grove_Motor_Driver_TB6612FNG.h>
 #include <IRSendRev.h>
 #include <Ultrasonic.h>
-
+#include "Atm_car.hpp"
 
 #define PIN_IRDA       8
 #define PIN_SONIC_TRIG 4
@@ -18,68 +18,14 @@
 
 #define MOTOR_LEFT     MOTOR_CHB
 #define MOTOR_RIGHT    MOTOR_CHA
-#define DEFAULT_SPEED  125
-#define SPEED_STEP     25
 #define MIN_DIST_CM    20
 
-#define STOPPED  0
-#define LEFT     1
-#define RIGHT    2
-#define FORWARD  3
-#define BACKWARD 4
-#define NOOP     5
-
 unsigned char irMessage[24];
-uint8_t state = STOPPED;
-uint8_t action = NOOP;
 uint16_t distance = 0;
-uint8_t speed = DEFAULT_SPEED;
-MotorDriver motor;
+int motorEvent;
 Ultrasonic ultrasonic(PIN_SONIC_TRIG, PIN_SONIC_ECHO);
 
-void advanceState() {
-  if ((state == FORWARD && distance < MIN_DIST_CM)
-      || (state == BACKWARD && action == FORWARD)
-      || (state == FORWARD  && action == BACKWARD)) {
-    Serial.println("stop");
-    state = STOPPED;
-    speed = DEFAULT_SPEED;
-  } else if (action == BACKWARD || action == FORWARD) {
-    Serial.println("moar");
-    state = action;
-    speed = min(speed + SPEED_STEP, 254);
-  } else if (action == LEFT || action == RIGHT) {
-    speed = DEFAULT_SPEED;
-    state = action;
-  } else {
-    Serial.println("rest");
-  }
-}
-
-void performMove() {
-  switch (state) {
-  case STOPPED:
-    motor.dcMotorStop(MOTOR_LEFT);
-    motor.dcMotorStop(MOTOR_RIGHT);
-    break;
-  case LEFT:
-    motor.dcMotorRun(MOTOR_LEFT,  -speed);
-    motor.dcMotorRun(MOTOR_RIGHT,  speed);
-    break;
-  case RIGHT:
-    motor.dcMotorRun(MOTOR_LEFT,   speed);
-    motor.dcMotorRun(MOTOR_RIGHT, -speed);
-    break;
-  case FORWARD:
-    motor.dcMotorRun(MOTOR_LEFT,   speed);
-    motor.dcMotorRun(MOTOR_RIGHT,  speed);
-    break;
-  case BACKWARD:
-    motor.dcMotorRun(MOTOR_LEFT,  -speed);
-    motor.dcMotorRun(MOTOR_RIGHT, -speed);
-    break;
-  }
-}
+Atm_car car(MOTOR_LEFT, MOTOR_RIGHT);
 
 void decodeSignal() {
   // uint32_t irData = *((uint32_t*)(irMessage + BIT_DATA));
@@ -93,19 +39,19 @@ void decodeSignal() {
 
   switch(irData) {
   case 0x02FD42BD:
-    action = LEFT;
+    motorEvent = Atm_car::E_LEFT;
     break;
   case 0x02FD02FD:
-    action = RIGHT;
+    motorEvent = Atm_car::E_RIGHT;
     break;
   case 0x02FD9867:
-    action = FORWARD;
+    motorEvent = Atm_car::E_FORWARD;
     break;
   case 0x02FDB847:
-    action = BACKWARD;
+    motorEvent = Atm_car::E_BACKWARD;
     break;
   default:
-    action = STOPPED;
+    motorEvent = Atm_car::E_STOP;
     break;
   }
 }
@@ -114,19 +60,37 @@ void setup() {
   Wire.begin();
   Serial.begin(115200);
   IR.Init(PIN_IRDA);
+  car.begin().trace(Serial);
 
-  motor.init();
-  performMove();
+  /*
+  ir.begin().onCommand([] (int id, int code, int up) {
+                         switch(code) {
+                         case 0x02FD42BD:
+                           car.trigger(Atm_car::E_LEFT);
+                           break;
+                         case 0x02FD02FD:
+                           car.trigger(Atm_car::E_RIGHT);
+                           break;
+                         case 0x02FD9867:
+                           car.trigger(Atm_car::E_FORWARD);
+                           break;
+                         case 0x02FDB847:
+                           car.trigger(Atm_car::E_BACKWARD);
+                           break;
+                         default:
+                           car.trigger(Atm_car::E_STOP);
+                           break;
+                         }
+                       });
+  */
 }
 
 void loop() {
-  distance = ultrasonic.read();
+  //distance = ultrasonic.read();
   if (IR.IsDta()) {
     IR.Recv(irMessage);
     decodeSignal();
-  } else {
-    action = NOOP;
+    car.trigger(motorEvent);
   }
-  advanceState();
-  performMove();
+  automaton.run();
 }
