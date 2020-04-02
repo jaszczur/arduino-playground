@@ -25,11 +25,11 @@ public:
 
   Atm_car& begin();
   Atm_car& trace(Stream &stream);
-
-  int event(int eventId);
-  void action(int actionId);
+  void distance(unsigned short front);
 
 private:
+  int event(int eventId);
+  void action(int actionId);
   MotorDriver motor;
   const motor_channel_type_t leftMotor;
   const motor_channel_type_t rightMotor;

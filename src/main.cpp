@@ -1,23 +1,27 @@
-#include <Arduino.h>
-#include <Grove_Motor_Driver_TB6612FNG.h>
-#include <Ultrasonic.h>
 #include "Atm_car.hpp"
 #include "Atm_ir.hpp"
+#include <Arduino.h>
+#include <Ultrasonic.h>
 
-#define PIN_IRDA       8
+#define PIN_IRDA 8
 #define PIN_SONIC_TRIG 4
 #define PIN_SONIC_ECHO 5
 
-#define MOTOR_LEFT     MOTOR_CHB
-#define MOTOR_RIGHT    MOTOR_CHA
-#define MIN_DIST_CM    20
-
-uint16_t distance = 0;
-int motorEvent;
-Ultrasonic ultrasonic(PIN_SONIC_TRIG, PIN_SONIC_ECHO);
+#define MOTOR_LEFT MOTOR_CHB
+#define MOTOR_RIGHT MOTOR_CHA
+#define MIN_DIST_CM 20
 
 Atm_car car(MOTOR_LEFT, MOTOR_RIGHT);
 Atm_ir ir;
+Ultrasonic proximity(PIN_SONIC_TRIG, PIN_SONIC_ECHO);
+uint32_t lastProximityTime = 0;
+
+void updateDistances() {
+  if (millis() - lastProximityTime >= 10 && car.state() == Atm_car::FORWARD) {
+    car.distance(proximity.read());
+    lastProximityTime = millis();
+  }
+}
 
 void setup() {
   Wire.begin();
@@ -28,7 +32,7 @@ void setup() {
   ir.onData([](int id, int code, int codeInit) {
     // Serial.print((uint16_t)code, HEX);
     // Serial.println((uint16_t)codeInit, HEX);
-    if ((uint16_t) codeInit == 0xFD02) {
+    if ((uint16_t)codeInit == 0xFD02) {
       switch ((uint16_t)code) {
       case 0xBD42:
         car.trigger(Atm_car::E_LEFT);
@@ -51,6 +55,6 @@ void setup() {
 }
 
 void loop() {
-  //distance = ultrasonic.read();
   automaton.run();
+  updateDistances();
 }

@@ -14,6 +14,13 @@ Atm_car& Atm_car::begin() {
   return *this;
 }
 
+void Atm_car::distance(unsigned short front) {
+  // Serial.println(front);
+  if (front < 20 && state() == FORWARD) {
+    trigger(STOP);
+  }
+}
+
 void Atm_car::action(int actionId) {
   switch (actionId) {
   case STOP:
