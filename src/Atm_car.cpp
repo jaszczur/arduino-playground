@@ -43,6 +43,7 @@ void Atm_car::action(int actionId) {
     // is it true exit?
     if (current != next) {
       actionRepeatCount = 0;
+      return; //??
     }
   default:
     return;
