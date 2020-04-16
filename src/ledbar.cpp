@@ -2,6 +2,7 @@
 #include <Arduino_FreeRTOS.h>
 
 #include "ledbar.h"
+#include "measurements.h"
 #include <Adafruit_NeoPixel.h>
 
 static Adafruit_NeoPixel *strip = NULL;
@@ -16,7 +17,7 @@ void colorWipe(uint32_t color, int wait) {
   for(int i=0; i<strip->numPixels(); i++) { // For each pixel in strip->..
     strip->setPixelColor(i, color);         //  Set pixel's color (in RAM)
     strip->show();                          //  Update strip to match
-    delay(wait);                           //  Pause for a moment
+    vTaskDelay(wait / portTICK_PERIOD_MS);
   }
 }
 
@@ -66,17 +67,17 @@ void pulseWhite(uint8_t wait) {
     // Fill entire strip with white at gamma-corrected brightness level 'j':
     strip->fill(strip->Color(0, 0, 0, strip->gamma8(j)));
     strip->show();
-    delay(wait);
+    vTaskDelay(wait / portTICK_PERIOD_MS);
   }
 
   for(int j=255; j>=0; j--) { // Ramp down from 255 to 0
     strip->fill(strip->Color(0, 0, 0, strip->gamma8(j)));
     strip->show();
-    delay(wait);
+    vTaskDelay(wait / portTICK_PERIOD_MS);
   }
 }
 
-void rainbowFade2White(int wait, int rainbowLoops, int whiteLoops) {
+int idle_animation(int wait, int rainbowLoops) {
   int fadeVal=0, fadeMax=100;
 
   // Hue of first pixel runs 'rainbowLoops' complete loops through the color
@@ -102,29 +103,15 @@ void rainbowFade2White(int wait, int rainbowLoops, int whiteLoops) {
     }
 
     strip->show();
-    delay(wait);
 
-    // if(firstPixelHue < 65536) {                              // First loop,
-    //   if(fadeVal < fadeMax) fadeVal++;                       // fade in
-    // } else if(firstPixelHue >= ((rainbowLoops-1) * 65536)) { // Last loop,
-    //   if(fadeVal > 0) fadeVal--;                             // fade out
-    // } else {
-      fadeVal = fadeMax; // Interim loop, make sure fade is at max
-    // }
-  }
+    uint32_t notification = ulTaskNotifyTake(pdTRUE, wait / portTICK_PERIOD_MS);
+    if (notification > 0) {
+      return 1;
+    }
 
-  for(int k=0; k<whiteLoops; k++) {
-    for(int j=0; j<256; j++) { // Ramp up 0 to 255
-      // Fill entire strip with white at gamma-corrected brightness level 'j':
-      strip->fill(strip->Color(0, 0, 0, strip->gamma8(j)));
-      strip->show();
-    }
-    delay(1000); // Pause 1 second
-    for(int j=255; j>=0; j--) { // Ramp down 255 to 0
-      strip->fill(strip->Color(0, 0, 0, strip->gamma8(j)));
-      strip->show();
-    }
+    fadeVal = fadeMax; // Interim loop, make sure fade is at max
   }
+  return 0;
 }
 // Declare our NeoPixel strip object:
 // Argument 1 = Number of pixels in NeoPixel strip
@@ -136,7 +123,7 @@ void rainbowFade2White(int wait, int rainbowLoops, int whiteLoops) {
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
 void ledbar_initialize(LedbarConfig_t *config) {
-  strip = new Adafruit_NeoPixel(config->count, config->pin, NEO_GRBW + NEO_KHZ800);
+  strip = new Adafruit_NeoPixel(config->count, config->pin, NEO_GRB + NEO_KHZ800);
   strip->begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
   strip->show();  // Turn OFF all pixels ASAP
   strip->setBrightness(config->brightness); // Set BRIGHTNESS to about 1/5 (max = 255)
@@ -148,23 +135,57 @@ void ledbar_destroy() {
   delete strip;
 }
 
+void display_percent(int percent) {
+  int okLeds = strip->numPixels() * percent / 100;
+  Serial.println(percent);
+
+  strip->clear();
+
+  for (int i = 0; i < okLeds; i++) {
+    strip->setPixelColor(i, strip->Color(0, 255, 0));
+  }
+
+  strip->setPixelColor(okLeds - 1, strip->Color(255, 255, 0));
+
+  for (int i = okLeds; i < strip->numPixels(); i++) {
+    strip->setPixelColor(i, strip->Color(255, 0, 0));
+  }
+
+  strip->show();
+}
+
 void ledbar_task(void *params) {
+  int should_display_moisture;
   while (true) {
-    if (shouldReadMoisture()) {
-      vTaskDelay(2500 / portTICK_PERIOD_MS);
-    } else {
-      rainbowFade2White(10, 1, 0);
+    should_display_moisture = idle_animation(25, 30);
+    if (should_display_moisture) {
+      display_percent(measurements_read_moisture());
+      vTaskDelay(pdMS_TO_TICKS(1000));
     }
   }
   vTaskDelete(NULL);
+}
+
+void measurements_monitor_task(void *params) {
+  TaskHandle_t led_task_handle = (TaskHandle_t) params;
+
+  while (true) {
+    if (shouldReadMoisture()) {
+      xTaskNotifyGive(led_task_handle);
+    }
+
+    vTaskDelay(400 / portTICK_PERIOD_MS);
+  }
 }
 
 void ledbar_task_start() {
   if (strip == NULL) {
     return;
   }
-  TaskHandle_t handle;
-  xTaskCreate(ledbar_task, "ledbar_idle", 128, NULL, 2, &handle);
+  TaskHandle_t led_task_handle;
+  xTaskCreate(ledbar_task, "ledbar_idle", 128, NULL, 2, &led_task_handle);
+  xTaskCreate(measurements_monitor_task, "ledbar_measurements", 128, led_task_handle, 1, NULL);
+
   // Fill along the length of the strip in various colors...
   // colorWipe(strip.Color(255,   0,   0)     , 50); // Red
   // colorWipe(strip.Color(  0, 255,   0)     , 50); // Green

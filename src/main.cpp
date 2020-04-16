@@ -8,7 +8,7 @@
 #define LED_COUNT 10
 #define BRIGHTNESS 25
 #define SWITCH_PIN 8
-#define MOIST_PIN 3
+#define MOIST_PIN A3
 
 void setup() {
   Serial.begin(115200);
